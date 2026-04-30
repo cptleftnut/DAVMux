@@ -1,0 +1,38 @@
+name: Build DAVMux Android App
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # Gør, at du kan klikke "Run workflow" manuelt i GitHub
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build Debug APK
+        # Vi kører 'gradle' i stedet for './gradlew', da vi installerer Gradle direkte på Ubuntu-maskinen
+        run: gradle assembleDebug
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DAVMux-APK
+          # Stien hvor Gradle spytter den færdige app ud
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
