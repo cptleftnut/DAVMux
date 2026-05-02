@@ -1,55 +1,51 @@
-# DAVMux
+# DAVMux v2
 
-> **Branch `davmux-remix`** — Termux terminal engine × DAVMux UI × AI session
+> Android terminal + AI  ·  Branch: `davmux-remix`
 
-DAVMux is an Android terminal app with a built-in AI coding assistant.
+## Features
 
-## Architecture
+- **Full Termux package ecosystem** — bash, apt, python, git, curl, vim, ssh, and 1000+ packages via `apt install`
+- **Termux terminal engine** — real PTY via TerminalSession (VT100/xterm, scrollback, colors)
+- **Claude Sonnet AI panel** — streaming AI assistant, slash commands, auto-executes shell suggestions
+- **DAVMux aesthetic** — #000000 / #00FF00 / monospace
 
+## Why `applicationId = "com.termux"`?
+
+Termux's bootstrap binaries are compiled with `/data/data/com.termux/files/usr` hardcoded.  
+DAVMux uses this applicationId so the paths match and all packages work out of the box.
+
+## First Launch
+
+On first launch DAVMux automatically downloads and installs the Termux bootstrap (~70MB).  
+After that, use `apt` or `pkg` to add any package:
+
+```bash
+apt update && apt upgrade
+apt install python git nodejs vim curl ssh
 ```
-DAVMux
-├── app/                                    ← DAVMux Android app
-│   └── src/main/java/com/davmux/app/
-│       ├── MainActivity.kt                 ← Upgraded: Termux PTY + AI panel
-│       ├── terminal/DAVMuxTerminalClient.kt ← Termux session ↔ TerminalView bridge
-│       └── ai/DAVMuxAISession.kt           ← Claude Sonnet streaming + slash commands
-├── terminal-emulator/                      ← Termux VT100/xterm core (Java + C JNI)
-├── terminal-view/                          ← Termux Android TerminalView widget
-└── termux-shared/                          ← Shell, file, net utilities from Termux
-```
-
-## What changed from v1
-
-| v1 (main) | v2 remix |
-|---|---|
-| `Runtime.getRuntime().exec()` | Full Termux PTY via `TerminalSession` |
-| `TextView` output | `TerminalView` (VT100, colors, cursor, scrollback) |
-| No AI | Claude Sonnet streaming panel (toggle `[AI]`) |
-| Basic shell | Slash commands: `/model` `/autopilot` `/clear` `/help` |
-
-## Branches
-
-| Branch | Contents |
-|---|---|
-| `main` | DAVMux v1 — original simple terminal |
-| `termux-features` | Termux source modules (reference) |
-| `davmux-remix` | **This branch** — v2 with Termux engine + AI |
 
 ## Build
 
 ```bash
 git clone https://github.com/cptleftnut/DAVMux -b davmux-remix
 cd DAVMux
+# downloadBootstraps runs automatically — downloads ~4 bootstrap ZIPs
 ./gradlew :app:assembleDebug
 ```
 
-Set `DAVMUX_API_KEY` env var or in app SharedPreferences to enable AI.
-
 ## AI Slash Commands
 
-| Command | Action |
+| Command | Effect |
 |---|---|
 | `/model claude-opus-4` | Switch model |
-| `/autopilot` | Toggle autopilot mode |
-| `/clear` | Clear conversation history |
-| `/help` | Show all commands |
+| `/autopilot` | Toggle autopilot |
+| `/clear` | Clear history |
+| `/help` | Show commands |
+
+## Branch Map
+
+| Branch | Contents |
+|---|---|
+| `main` | DAVMux v1 (simple sh terminal) |
+| `termux-features` | Termux source reference |
+| `davmux-remix` | **DAVMux v2** (this branch) |

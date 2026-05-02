@@ -11,16 +11,14 @@ import android.widget.TextView
 import com.davmux.app.ai.DAVMuxAISession
 import com.davmux.app.terminal.DAVMuxTerminalClient
 import com.termux.terminal.TerminalSession
-import com.termux.terminal.TerminalSessionClient
 import com.termux.view.TerminalView
-import com.termux.view.TerminalViewClient
 
 /**
- * DAVMux MainActivity — Remix of DAVMux UI × Termux terminal engine × AI session
+ * DAVMux MainActivity v2 — full Termux bootstrap + AI
  *
- * Layout: DAVMux original aesthetic (#000000 bg, #00FF00 text, monospace)
- * Terminal: Upgraded from Runtime.exec() → Termux TerminalSession (full PTY, VT100)
- * AI: DAVMuxAISession panel toggled via [AI] button — streams Claude Sonnet responses
+ * On first launch: installs bootstrap packages (bash, apt, python, git, curl…)
+ * Terminal: TerminalSession with bash from $PREFIX/bin/bash
+ * AI: DAVMuxAISession (Claude Sonnet streaming, slash commands)
  */
 class MainActivity : Activity() {
 
@@ -32,7 +30,7 @@ class MainActivity : Activity() {
 
     private var terminalSession: TerminalSession? = null
     private val aiSession by lazy { DAVMuxAISession(this) }
-    private var aiPanelVisible = false
+    private var aiVisible = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,104 +42,88 @@ class MainActivity : Activity() {
         btnAI        = findViewById(R.id.btnAI)
         aiPanel      = findViewById(R.id.aiPanel)
 
-        setupTerminal()
-        setupInputBar()
-        setupAIPanel()
+        // Install bootstrap if needed, then start terminal
+        DAVMuxInstaller.setupIfNeeded(this) {
+            startTerminal()
+            setupInput()
+            setupAI()
+        }
     }
 
-    // ── Terminal (Termux engine) ──────────────────────────────────────────────
-
-    private fun setupTerminal() {
-        val shell = "/system/bin/sh"
-        val env = arrayOf("TERM=xterm-256color", "HOME=/data/data/com.davmux.app")
-        val args = arrayOf(shell)
+    private fun startTerminal() {
+        val shell = DAVMuxInstaller.getShell()            // $PREFIX/bin/bash
+        val env   = DAVMuxInstaller.buildEnvironment(this) // PATH, HOME, PREFIX…
+        val home  = DAVMuxInstaller.HOME_PATH
 
         val client = DAVMuxTerminalClient(terminalView)
-        terminalSession = TerminalSession(shell, "/data/data/com.davmux.app", args, env, 4000, client)
+        terminalSession = TerminalSession(
+            shell, home,
+            arrayOf(shell, "--login"),
+            env,
+            4000,
+            client
+        )
         terminalView.attachSession(terminalSession)
         terminalView.setTerminalViewClient(client)
 
-        // DAVMux green-on-black color scheme
-        terminalView.setBackgroundColor(0xFF000000.toInt())
+        // Welcome banner written to PTY
+        terminalSession?.write(
+            "\r\n\u001b[32m  ▓ DAVMux v2  —  bash \u001b[0m· type 'apt install python' to add packages\r\n\r\n"
+        )
     }
 
-    private fun setupInputBar() {
-        btnRun.setOnClickListener { sendCommand() }
-        etCommand.setOnEditorActionListener { _, actionId, event ->
-            if (actionId == EditorInfo.IME_ACTION_SEND ||
-                event?.keyCode == KeyEvent.KEYCODE_ENTER) {
-                sendCommand(); true
+    private fun setupInput() {
+        fun send() {
+            val cmd = etCommand.text.toString().trim()
+            if (cmd.isEmpty()) return
+            etCommand.text.clear()
+            if (cmd.startsWith("/")) {
+                val result = aiSession.handleSlashCommand(cmd)
+                if (result != null) {
+                    terminalSession?.write("\r\n\u001b[32m$result\u001b[0m\r\n")
+                    return
+                }
+            }
+            terminalSession?.write("$cmd\n")
+        }
+        btnRun.setOnClickListener { send() }
+        etCommand.setOnEditorActionListener { _, id, ev ->
+            if (id == EditorInfo.IME_ACTION_SEND || ev?.keyCode == KeyEvent.KEYCODE_ENTER) {
+                send(); true
             } else false
         }
     }
 
-    private fun sendCommand() {
-        val cmd = etCommand.text.toString().trim()
-        if (cmd.isEmpty()) return
-        etCommand.text.clear()
-
-        // Check for AI slash commands first
-        if (cmd.startsWith("/")) {
-            val result = aiSession.handleSlashCommand(cmd)
-            if (result != null) {
-                terminalSession?.write("\r\n\u001b[32m$result\u001b[0m\r\n")
-                return
-            }
+    private fun setupAI() {
+        btnAI.setOnClickListener {
+            aiVisible = !aiVisible
+            aiPanel.visibility = if (aiVisible) android.view.View.VISIBLE else android.view.View.GONE
+            btnAI.text = if (aiVisible) "HIDE AI" else "AI"
         }
-
-        // Write command to real terminal PTY
-        terminalSession?.write("$cmd\n")
-    }
-
-    // ── AI Panel ─────────────────────────────────────────────────────────────
-
-    private fun setupAIPanel() {
-        btnAI.setOnClickListener { toggleAIPanel() }
 
         val aiInput  = findViewById<EditText>(R.id.etAIInput)
         val aiSend   = findViewById<Button>(R.id.btnAISend)
         val aiOutput = findViewById<TextView>(R.id.tvAIOutput)
 
         aiSend.setOnClickListener {
-            val msg = aiInput.text.toString().trim()
-            if (msg.isEmpty()) return@setOnClickListener
+            val msg = aiInput.text.toString().trim().ifEmpty { return@setOnClickListener }
             aiInput.text.clear()
-
-            // Slash command?
             if (msg.startsWith("/")) {
-                val result = aiSession.handleSlashCommand(msg)
-                if (result != null) {
-                    aiOutput.append("\n\u25cf DAVMux: $result\n")
-                    return@setOnClickListener
-                }
+                val r = aiSession.handleSlashCommand(msg)
+                if (r != null) { aiOutput.append("\n$r\n"); return@setOnClickListener }
             }
-
-            aiOutput.append("\n\u25b6 You: $msg\n\u25cf DAVMux AI: ")
-
+            aiOutput.append("\n▶ $msg\n◆ ")
             aiSession.sendMessage(msg, object : DAVMuxAISession.AIResponseListener {
-                override fun onToken(token: String) {
-                    runOnUiThread { aiOutput.append(token) }
-                }
-                override fun onComplete(full: String) {
-                    runOnUiThread {
-                        aiOutput.append("\n")
-                        // If AI outputs a $ command, write it to terminal
-                        full.lines().filter { it.startsWith("$ ") }.forEach { line ->
-                            terminalSession?.write("${line.removePrefix("$ ")}\n")
-                        }
-                    }
-                }
-                override fun onError(error: String) {
-                    runOnUiThread { aiOutput.append("\n[Error: $error]\n") }
-                }
+                override fun onToken(t: String)  = runOnUiThread { aiOutput.append(t) }.let {}
+                override fun onComplete(f: String) = runOnUiThread {
+                    aiOutput.append("\n")
+                    // Auto-execute shell commands the AI outputs
+                    f.lines().filter { it.startsWith("$ ") }
+                     .forEach { terminalSession?.write("${it.removePrefix("$ ")}\n") }
+                }.let {}
+                override fun onError(e: String) = runOnUiThread { aiOutput.append("[err: $e]\n") }.let {}
             })
         }
-    }
-
-    private fun toggleAIPanel() {
-        aiPanelVisible = !aiPanelVisible
-        aiPanel.visibility = if (aiPanelVisible) android.view.View.VISIBLE else android.view.View.GONE
-        btnAI.text = if (aiPanelVisible) "HIDE AI" else "AI"
     }
 
     override fun onDestroy() {
